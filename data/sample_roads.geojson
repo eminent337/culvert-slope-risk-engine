@@ -1,0 +1,11 @@
+{
+"type": "FeatureCollection",
+"name": "sample_roads",
+"crs": { "type": "name", "properties": { "name": "urn:ogc:def:crs:EPSG::32630" } },
+"features": [
+{ "type": "Feature", "properties": { "road_id": "HWY-101", "name": "Mountain Highway 101", "type": "Primary Highway", "speed_kmh": 80 }, "geometry": { "type": "LineString", "coordinates": [ [ 600500.0, 641000.0 ], [ 602500.0, 643000.0 ], [ 605000.0, 645000.0 ], [ 607500.0, 646500.0 ], [ 609500.0, 649000.0 ] ] } },
+{ "type": "Feature", "properties": { "road_id": "FR-12", "name": "Forest Access Road 12", "type": "Secondary Unpaved", "speed_kmh": 40 }, "geometry": { "type": "LineString", "coordinates": [ [ 601000.0, 648000.0 ], [ 603000.0, 646500.0 ], [ 604500.0, 647200.0 ], [ 606000.0, 645800.0 ], [ 608500.0, 644000.0 ] ] } },
+{ "type": "Feature", "properties": { "road_id": "PASS-04", "name": "Ridge Crest Pass", "type": "Tertiary Mountain Road", "speed_kmh": 30 }, "geometry": { "type": "LineString", "coordinates": [ [ 602000.0, 641500.0 ], [ 603500.0, 643500.0 ], [ 605500.0, 642500.0 ], [ 607000.0, 644500.0 ], [ 609000.0, 643000.0 ] ] } },
+{ "type": "Feature", "properties": { "road_id": "VAL-02", "name": "Valley Spur Connector", "type": "Rural Collector", "speed_kmh": 50 }, "geometry": { "type": "LineString", "coordinates": [ [ 604000.0, 649000.0 ], [ 605200.0, 646500.0 ], [ 605800.0, 643500.0 ], [ 606500.0, 640500.0 ] ] } }
+]
+}
