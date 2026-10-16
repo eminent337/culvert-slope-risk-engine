@@ -1,133 +1,144 @@
-# 🌊 Culvert & Slope Hydrological Precondition Engine
-### Physics-Informed Computational Hydrology & Geotechnical Infrastructure Risk Framework
+# 🌊 Culvert & Slope Hydrological Precondition Engine (v2.0)
+### Physics-Informed Computational Hydrology, InSAR Deformation Priors & Infrastructure Resilience
 
 [![Python 3.10+](https://img.shields.io/badge/Python-3.10%2B-blue.svg)](https://www.python.org/)
-[![Tests](https://img.shields.io/badge/pytest-11%20passed-brightgreen.svg)](https://docs.pytest.org/)
+[![Tests](https://img.shields.io/badge/pytest-17%20passed-brightgreen.svg)](https://docs.pytest.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Domain](https://img.shields.io/badge/Domain-Hydrology%20%7C%20Geotechnics%20%7C%20InSAR-purple.svg)]()
+[![Radar](https://img.shields.io/badge/Remote%20Sensing-Sentinel--1%20InSAR-purple.svg)]()
+[![Hydrology](https://img.shields.io/badge/Hydrology-SMAP--HydroBlocks%20TWI-blue.svg)]()
 
 > **Author:** Peter Aryee  
 > **Contact:** [paryee.geospatial@gmail.com](mailto:paryee.geospatial@gmail.com) | [LinkedIn](https://linkedin.com/in/peter-aryee-geospatial)  
-> **Academic Focus:** Department of Earth, Environmental and Planetary Sciences (EEPS), Rice University  
+> **Academic Target:** Department of Earth, Environmental and Planetary Sciences (EEPS), Rice University  
 > **Target Initiative:** USDA Forest Service CulvertApp (`culvert-at-risk.org`) & Physics-Informed AI for Landslides
 
 ---
 
-## 1. Scientific Motivation & Real-World Problem
+## 1. Executive Scientific Motivation
 
-Across the United States and global mountainous terrains, transportation corridors intersect natural drainage networks at millions of **road-stream culvert crossings**. During extreme storm events, culverts frequently suffer catastrophic structural blowouts through a dual-mechanism coupling:
+Across mountain transportation corridors, stream crossings rely on **culverts** (corrugated metal pipes and concrete box channels) to convey runoff beneath road embankments. During severe precipitation events, culverts frequently suffer catastrophic structural blowouts through a multi-hazard coupling:
 
 ```
-  [ Extreme Rainfall / Antecedent Wetness ]
-                      │
-                      ▼
-        [ Upslope Soil Saturation ] ──► [ Elevated Pore Pressure: u = m * γ_w * z * cos²(β) ]
-                      │                                      │
-                      ▼                                      ▼
-        [ Runoff Surge: Q_peak ]                  [ Geotechnical Slope Failure: FS < 1.0 ]
-                      │                                      │
-                      ▼                                      ▼
-   ═══════════════════[ ROADWAY EMBANKMENT ]═════════════════════════════════
-                      [ CULVERT BARREL ] ◄── Sediment Infill & Hydraulic Surcharge
-   ──────────────────────────────────────────────────────────────────────────
-                      │
-                      ▼
-         💥 [ CATASTROPHIC EMBANKMENT WASHOUT / ROAD BLOWOUT ]
+                  [ Extreme Precipitation Event ]
+                                │
+       ┌────────────────────────┴────────────────────────┐
+       ▼                                                 ▼
+[ 2D Topographic Wetness (TWI) ]            [ Sentinel-1 InSAR Kinematics ]
+Hollows saturate (m(x,y) -> 1.0)            Downslope creep (v_LOS < -10 mm/yr)
+       │                                                 │
+       ▼                                                 ▼
+[ Pore Pressure: u = m * γ_w * z * cos²β ]  [ Kinematic Strain Softening ]
+       │                                                 │
+       └────────────────────────┬────────────────────────┘
+                                ▼
+             [ Terzaghi-Coulomb Slope Failure: FS < 1.0 ]
+                                │ (Debris Flow Torrent)
+                                ▼
+       ═════════════════[ ROADWAY EMBANKMENT ]═════════════════
+          [ CULVERT INLET ] ◄── Woody Debris Constriction (GRAIP)
+       ────────────────────────────────────────────────────────
+                                │
+                                ▼
+            💥 [ CATASTROPHIC ROAD EMBANKMENT BLOWOUT ]
 ```
 
-1. **Hydraulic Surcharge:** Storm peak discharge $Q_{\text{peak}}$ exceeds the culvert pipe conveyance capacity $Q_{\text{cap}}$, causing backwater to pond against the unengineered road embankment.
-2. **Geotechnical Instability:** Pre-existing antecedent soil moisture ($m = z_w / z$) elevates pore-water pressure ($u$), reducing effective normal stress ($\sigma' = \sigma - u$) and triggering shallow translational landslides and debris flows that choke the culvert inlet.
+1. **Topographic Moisture Convergence:** Regional satellite soil moisture (e.g. NASA SMAP) concentrates in convergent mountain hollows and riparian zones, driving local saturation ($m(x,y) \rightarrow 1.0$).
+2. **Geotechnical Instability & InSAR Validation:** Elevated pore-water pressure ($u$) reduces effective normal stress ($\sigma' = \sigma - u$), triggering translational slope failure, validated observationally by **Sentinel-1 InSAR line-of-sight displacement velocities ($v_{\text{LOS}}$)**.
+3. **Woody Debris & Hydraulic Surcharge:** Narrow culverts become choked with woody debris (USDA Forest Service GRAIP model), drastically reducing conveyance capacity and causing water to pool until the road embankment washes out.
 
-This open-source engine automates the end-to-end detection, catchment delineation, geotechnical stability modeling, and multi-hazard risk ranking of culverts using standard Digital Elevation Models (DEMs) and vector road networks.
+This open-source framework automates the entire coupled pipeline from raw DEMs and road vectors to operational risk ranking.
 
 ---
 
 ## 2. Mathematical & Physical Formulation
 
 ### A. Geotechnical Slope Stability (Terzaghi-Coulomb Infinite Slope Model)
-The Factor of Safety ($FS$) against translational shear failure along an inclined planar failure surface is expressed as the ratio of resisting shear strength to gravitational driving shear stress:
+The Factor of Safety ($FS$) against translational shear failure along an inclined slip plane:
 
-$$FS = \frac{\tau_f}{\tau_d} = \frac{c' + (\sigma - u)\tan\phi'}{\gamma_s z \sin\beta \cos\beta}$$
-
-Incorporating antecedent hydrologic saturation ratio $m = \frac{z_w}{z}$ (where $z_w$ is the height of the perched water table above the slip surface, $0 \le m \le 1$):
-
-$$FS = \frac{c' + (\gamma_s - m \gamma_w) z \cos^2\beta \tan\phi'}{\gamma_s z \sin\beta \cos\beta}$$
+$$FS = \frac{c' + (\gamma_s - m(x,y) \gamma_w) z \cos^2\beta \tan\phi'}{\gamma_s z \sin\beta \cos\beta}$$
 
 * $c'$: Effective soil cohesion ($\text{kPa}$)
-* $\phi'$: Internal soil friction angle ($\text{degrees}$)
-* $\beta$: Topographic hillslope gradient ($\text{degrees}$, derived from DEM)
-* $z$: Soil mantle depth down to bedrock slip surface ($\text{m}$)
-* $\gamma_s, \gamma_w$: Unit weights of bulk soil ($18.5 \text{ kN/m}^3$) and water ($9.81 \text{ kN/m}^3$)
-* $m$: **Hydrological Saturation Ratio** ($0.0 = \text{dry}$, $1.0 = \text{fully saturated}$)
-
-**Stability Thresholds:**
-* $FS \ge 1.5$: Geotechnically Stable
-* $1.2 \le FS < 1.5$: Marginally Stable (vulnerable to high antecedent rain)
-* $1.0 \le FS < 1.2$: High Hazard (near failure boundary)
-* $FS < 1.0$: **Active Slope Failure / Liquefaction Trigger**
+* $\phi'$: Internal friction angle ($\text{degrees}$)
+* $\beta$: Topographic hillslope gradient ($\text{degrees}$, derived from DEM finite differences)
+* $z$: Soil mantle thickness down to failure plane ($\text{m}$)
+* $\gamma_s, \gamma_w$: Soil bulk unit weight ($18.5 \text{ kN/m}^3$) and water unit weight ($9.81 \text{ kN/m}^3$)
+* $m(x,y)$: **2D Spatially Distributed Hydrological Saturation Ratio** ($0.05 \le m \le 1.0$)
 
 ---
 
-### B. Analytical Critical Saturation Threshold ($m_{\text{crit}}$)
-By setting $FS = 1.0$, the engine analytically computes the exact soil moisture threshold $m_{\text{crit}}$ required to trigger failure:
+### B. Hyper-Resolution Soil Moisture (Beven-Kirkby TWI / SMAP Downscaling)
+To emulate the physical downscaling logic of **SMAP-HydroBlocks** (Vergopolan et al., 2021), regional satellite soil moisture is downscaled using the Topographic Wetness Index:
 
-$$m_{\text{crit}} = \frac{c' + \gamma_s z \cos^2\beta \tan\phi' - \gamma_s z \sin\beta \cos\beta}{\gamma_w z \cos^2\beta \tan\phi'}$$
+$$\text{TWI} = \ln\left( \frac{a}{\tan\beta + \epsilon} \right)$$
 
-* If $m_{\text{crit}} > 1.0$: Slope remains stable even under 100% saturation.
-* If $m_{\text{crit}} \le 0.0$: Slope is unconditionally unstable even when dry.
-
----
-
-### C. Hydraulic Peak Runoff & Pipe Conveyance Capacity
-Peak storm discharge is evaluated using the Rational / TR-55 hydrographic formulation:
-
-$$Q_{\text{peak}} = \frac{C \cdot I \cdot A_{\text{catchment}}}{3.6} \quad [\text{m}^3/\text{s}]$$
-
-Culvert full-pipe hydraulic conveyance capacity is governed by Manning's gravity flow equation:
-
-$$Q_{\text{cap}} = \frac{1}{n} A_{\text{pipe}} R_h^{2/3} S_0^{1/2} \quad [\text{m}^3/\text{s}]$$
-
-Where $A_{\text{pipe}} = \frac{\pi D^2}{4}$, hydraulic radius $R_h = \frac{D}{4}$, $S_0$ is culvert barrel slope, and $n$ is Manning's roughness coefficient (0.024 for corrugated metal pipe).
+Where $a = N_{\text{accum}} \cdot \Delta x$ is specific contributing drainage area per unit contour width. Convergent hollows concentrate antecedent saturation toward 100%, while steep ridges drain rapidly.
 
 ---
 
-### D. Composite Vulnerability Index (CVI) & Blowout Multiplier
-Culverts are evaluated through a multi-hazard index combining geotechnical slope vulnerability, hydraulic surcharge ratio $HR = Q_{\text{peak}} / Q_{\text{cap}}$, and roadway consequence weight $W_{\text{road}}$:
+### C. Sentinel-1 InSAR Kinematic Observational Prior
+Static slope equations only predict *theoretical* susceptibility. Satellite radar interferometry (**InSAR**) measures actual physical ground movement. The prior Factor of Safety is dynamically updated via an exponential kinematic strain-softening function:
 
-$$\text{CVI} = \Big[ 0.50 \cdot S_{\text{geotech}} + 0.50 \cdot S_{\text{hydraulic}} \Big] \cdot W_{\text{road}} \cdot \Psi_{\text{blowout}}$$
+$$v_{\text{excess}} = \max\Big(0, \; |v_{\text{LOS}}| - v_{\text{threshold}}\Big)$$
 
-Where $\Psi_{\text{blowout}} = 1.35$ is the **Embankment Blowout Hazard Multiplier**, triggered whenever severe hydraulic overtopping ($HR \ge 1.0$) directly coincides with upslope geotechnical instability ($FS \le 1.25$).
+$$FS_{\text{insar}} = FS_{\text{prior}} \cdot \exp\left( -\frac{v_{\text{excess}}}{v_{\text{scale}}} \right)$$
+
+Where $v_{\text{threshold}} = 3.5 \text{ mm/yr}$ (geodetic noise floor) and $v_{\text{scale}} = 18.0 \text{ mm/yr}$. Active downslope creep confirms ongoing slip-surface shear displacement.
 
 ---
 
-## 3. Architecture & Modular Design
+### D. USDA Forest Service Woody Debris Inlet Plugging (GRAIP)
+In steep forested catchments, culvert failure is dominated by woody debris and coarse bedload. The inlet constriction ratio is:
+
+$$\chi = \frac{D_{\text{culvert}}}{W_{\text{bankfull}}} = \frac{D}{1.9 \cdot A_{\text{catchment}}^{0.38}}$$
+
+The debris jamming probability $P_{\text{plug}}$ reduces effective hydraulic conveyance:
+
+$$Q_{\text{effective}} = Q_{\text{capacity}} \cdot \Big( 1.0 - 0.65 \cdot P_{\text{plug}} \Big)$$
+
+---
+
+### E. Composite Vulnerability Index (CVI) & Blowout Multiplier
+$$\text{CVI} = \Big[ 0.45 \cdot S_{\text{geotech}} + 0.45 \cdot S_{\text{hydraulic}} + 0.10 \cdot P_{\text{plug}} \cdot 100 \Big] \cdot W_{\text{road}} \cdot \Psi_{\text{blowout}} \cdot \Phi_{\text{insar}}$$
+
+Where $\Psi_{\text{blowout}} = 1.40$ is the **Embankment Blowout Multiplier** triggered when hydraulic surcharge ($HR \ge 1.0$) coincides with geotechnical instability ($FS_{\text{insar}} \le 1.25$).
+
+---
+
+## 3. Package Architecture
 
 ```
 culvert_slope_mini_project/
 ├── data/
-│   ├── sample_generator.py      # Synthetic high-relief mountain terrain & road vector generator
+│   ├── sample_generator.py      # High-relief mountain watershed & road vector generator
 │   ├── sample_dem.tif           # 25m DEM GeoTIFF (EPSG:32630)
 │   └── sample_roads.geojson     # Road network vector corridors
 ├── src/
 │   ├── hydro_routing.py         # DEM conditioning, finite-difference slope, D8 flow accumulation
 │   ├── road_intersection.py     # Road-stream spatial overlay & upstream catchment delineation
+│   ├── soil_moisture_twi.py     # Beven-Kirkby TWI & SMAP hyper-resolution downscaling
+│   ├── insar_prior.py           # Sentinel-1 InSAR LOS velocity field & kinematic FS updater
 │   ├── slope_physics.py         # Terzaghi-Coulomb FS modeling & m_crit analytical solver
 │   ├── hydraulic_capacity.py    # Peak storm runoff & Manning culvert flow capacity
-│   ├── risk_engine.py           # Multi-hazard risk prioritization & blowout scoring
-│   └── visualizer.py            # Interactive Folium Web GIS map & 3-panel diagnostic figures
+│   ├── debris_hazard.py         # USDA Forest Service woody debris & sediment inlet plugging
+│   ├── risk_engine.py           # Multi-hazard risk prioritization & blowout scoring (v2.0)
+│   └── visualizer.py            # Interactive Folium Web GIS map & 4-panel diagnostic figures
 ├── notebooks/
-│   └── 01_pipeline_walkthrough.ipynb  # End-to-end interactive Jupyter demonstration
+│   └── 01_pipeline_walkthrough.ipynb  # Interactive step-by-step Jupyter demonstration
 ├── tests/
 │   ├── test_hydro_routing.py    # D8 flow direction, gradient & accumulation tests
 │   ├── test_slope_physics.py    # Analytical FS and moisture sensitivity tests
-│   └── test_hydraulic_capacity.py # Manning's conveyance & discharge scaling tests
+│   ├── test_hydraulic_capacity.py # Manning's conveyance & discharge scaling tests
+│   ├── test_soil_moisture_twi.py# TWI and SMAP downscaling boundary tests
+│   ├── test_insar_prior.py      # InSAR kinematic degradation & stationary limit tests
+│   └── test_debris_hazard.py    # Bankfull channel width & plugging probability tests
 ├── output/
-│   ├── culvert_risk_map.html    # Interactive Web GIS Folium map
-│   ├── culvert_risk_diagnostics.png # High-resolution 300 DPI publication plots
+│   ├── culvert_risk_map.html    # Interactive Web GIS Folium map (with InSAR badges)
+│   ├── culvert_risk_diagnostics.png # 4-panel 300 DPI scientific diagnostic figure
 │   └── culvert_risk_assessment_summary.csv # Tabular engineering dataset
 ├── run_pipeline.py              # CLI driver with configurable parameters
 ├── requirements.txt             # Lightweight Python dependencies
-└── pyproject.toml               # Python packaging metadata
+├── pyproject.toml               # Python packaging metadata
+└── LICENSE                      # MIT Open-Source License
 ```
 
 ---
@@ -145,49 +156,45 @@ cd culvert-slope-risk-engine
 pip install -r requirements.txt
 ```
 
-### Run Full Analysis Pipeline
+### Run Full Advanced Pipeline
 ```bash
-python run_pipeline.py --saturation 0.70 --rainfall 75.0 --diameter 1.2
+python run_pipeline.py --regional-saturation 0.70 --rainfall 75.0 --diameter 1.2
 ```
 
 ### Run Unit Tests
 ```bash
 pytest tests/ -v
+# 17 passed in ~5 seconds
 ```
 
 ---
 
 ## 5. Visual Outputs & Cartographic Products
 
-### Interactive Web GIS Dashboard (`output/culvert_risk_map.html`)
-The pipeline automatically generates a Leaflet/Folium web map featuring:
-* Color-coded crossing pins: **Green** (Low Risk) $\rightarrow$ **Yellow** (Moderate) $\rightarrow$ **Orange** (High) $\rightarrow$ **Red** (Critical Blowout Hazard).
-* Interactive engineering popups displaying:
-  * Culvert ID & Road Name
-  * Composite Vulnerability Index (CVI)
-  * Factor of Safety ($FS$) & Critical Saturation ($m_{\text{crit}}$)
-  * Peak Inflow ($Q_{\text{peak}}$) vs Pipe Conveyance ($Q_{\text{cap}}$)
-  * Upstream Catchment Area ($\text{km}^2$) and 90th percentile slope gradient.
+### Interactive Web GIS Map (`output/culvert_risk_map.html`)
+* **Color-coded risk classifications:** Green (Low) $\rightarrow$ Yellow (Moderate) $\rightarrow$ Orange (High) $\rightarrow$ Red (Critical Blowout).
+* **Popup engineering cards:** Displays InSAR LOS velocity ($v_{\text{LOS}}$), kinematic activity status, TWI local saturation ratio ($m$), woody debris jamming probability, and hydraulic surcharge ratio ($HR$).
 
-### Diagnostic Scientific Plots (`output/culvert_risk_diagnostics.png`)
-* **Panel A:** Factor of Safety degradation curves across the saturation continuum ($m = 0.0 \rightarrow 1.0$) identifying critical slope tipping points.
-* **Panel B:** Peak storm discharge vs culvert barrel capacity under design rainfall.
-* **Panel C:** Culvert network risk prioritization ranking.
+### 4-Panel Publication Diagnostic Figure (`output/culvert_risk_diagnostics.png`)
+* **Panel A:** Factor of Safety degradation curves across antecedent soil saturation.
+* **Panel B:** Sentinel-1 InSAR LOS velocity vs updated geotechnical stability ($FS_{\text{insar}}$).
+* **Panel C:** Peak storm discharge vs nominal and debris-constricted pipe capacity.
+* **Panel D:** Advanced Composite Vulnerability Index (CVI) ranking.
 
 ---
 
 ## 6. Scientific Foundations & Prior Art Citations
 
-This framework synthesizes established methodologies from computational hydrology and geotechnical infrastructure analysis:
-
 1. **USDA Forest Service GRAIP (Geomorphic Road Analysis and Inventory Package):**
    * Cissel, J. M., et al. (2014). *GRAIP-Lite: A tool for evaluating road sediment delivery and culvert failure risk across watershed scales*. USDA Forest Service Rocky Mountain Research Station.
-2. **Cornell Culvert Evaluation Model:**
-   * Soil and Water Lab, Cornell University (2018). *Assessing flood risk and hydraulic capacity for road-stream crossings using TR-55 runoff methodology*.
-3. **Landlab Earth-Surface Dynamics Framework:**
-   * Hobley, D. E. J., et al. (2017). *Creative computing with Landlab: an open-source library for building 2D numerical models of Earth-surface dynamics*. Earth Surface Dynamics.
-4. **Hyper-Resolution Hydrology & Antecedent Moisture Preconditions:**
+   * Furniss, M. J., et al. (1998). *Response of road-stream crossings to large flood events in Washington, Oregon, and Northern California*. USDA Forest Service.
+2. **Hyper-Resolution Hydrology & SMAP Satellite Downscaling:**
    * Vergopolan, N., et al. (2021). *SMAP-HydroBlocks: A 30-m satellite-based soil moisture dataset for hyper-resolution environmental modeling across the United States*. Scientific Data.
+3. **Multi-Temporal InSAR for Slope Deformation:**
+   * Aryee, P., & Kumi-Boateng, B. (2024). *Assessing Ground Deformation at Chirano Gold Mine Pit Slopes using Multi-Temporal Sentinel-1 SAR Interferometry*. UMaT Thesis.
+4. **Topographic Wetness & Hillslope Dynamics:**
+   * Beven, K. J., & Kirkby, M. J. (1979). *A physically based, variable contributing area model of basin hydrology*. Hydrological Sciences Bulletin.
+   * Hobley, D. E. J., et al. (2017). *Creative computing with Landlab: an open-source library for building 2D numerical models of Earth-surface dynamics*. Earth Surface Dynamics.
 
 ---
 

@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """
-Culvert & Slope Hydrological Precondition Engine — CLI Pipeline Driver
+Culvert & Slope Hydrological Precondition Engine (v2.0 Advanced)
 Executes end-to-end terrain processing, hydrographic routing, road-stream intersection,
-geotechnical slope stability modeling, and multi-hazard risk prioritization.
+Beven-Kirkby Topographic Wetness Index (SMAP 30m downscaling emulation),
+Sentinel-1 multi-temporal InSAR ground deformation velocity priors,
+USDA Forest Service debris plugging models, and multi-hazard risk ranking.
 """
 
 import argparse
@@ -11,6 +13,7 @@ from pathlib import Path
 import rasterio
 import geopandas as gpd
 import pandas as pd
+import numpy as np
 
 from src.hydro_routing import (
     fill_depressions,
@@ -23,13 +26,18 @@ from src.road_intersection import (
     detect_culvert_crossings,
     extract_culvert_catchment_attributes
 )
-from src.risk_engine import assess_culvert_network_risk
+from src.soil_moisture_twi import (
+    compute_topographic_wetness_index,
+    downscale_smap_soil_moisture
+)
+from src.insar_prior import generate_synthetic_sentinel1_insar_field
+from src.risk_engine import assess_culvert_network_risk_advanced
 from src.visualizer import build_interactive_risk_map, generate_diagnostic_plots
 
 
 def parse_arguments():
     parser = argparse.ArgumentParser(
-        description="Physics-informed culvert vulnerability and slope precondition engine."
+        description="Advanced Physics-Informed Culvert Risk & Slope Precondition Engine (v2.0)."
     )
     parser.add_argument(
         "--dem",
@@ -50,10 +58,10 @@ def parse_arguments():
         help="Directory to save output maps, plots, and tabular datasets."
     )
     parser.add_argument(
-        "--saturation",
+        "--regional-saturation",
         type=float,
         default=0.70,
-        help="Antecedent soil moisture saturation ratio m (0.0=dry, 1.0=fully saturated)."
+        help="Regional antecedent soil moisture saturation ratio m (0.0=dry, 1.0=fully saturated)."
     )
     parser.add_argument(
         "--rainfall",
@@ -73,6 +81,16 @@ def parse_arguments():
         default=0.35,
         help="Minimum upstream contributing drainage area (km^2) to initiate stream channels."
     )
+    parser.add_argument(
+        "--no-insar",
+        action="store_true",
+        help="Disable Sentinel-1 InSAR kinematic observational prior coupling."
+    )
+    parser.add_argument(
+        "--no-debris",
+        action="store_true",
+        help="Disable USDA Forest Service woody debris inlet plugging model."
+    )
     return parser.parse_args()
 
 
@@ -84,10 +102,10 @@ def main():
     out_dir = base_dir / args.output_dir
     out_dir.mkdir(parents=True, exist_ok=True)
     
-    print("\n" + "=" * 78)
-    print("  CULVERT & SLOPE HYDROLOGICAL PRECONDITION ENGINE")
-    print("  Physics-Informed Transportation Infrastructure Resilience")
-    print("=" * 78 + "\n")
+    print("\n" + "=" * 82)
+    print("  CULVERT & SLOPE HYDROLOGICAL PRECONDITION ENGINE (v2.0 ADVANCED)")
+    print("  Physics-Informed Transportation Infrastructure Resilience & InSAR Coupling")
+    print("=" * 82 + "\n")
     
     # 1. Ingest DEM
     if not dem_path.exists():
@@ -95,7 +113,7 @@ def main():
         print("💡 Tip: Run 'python data/sample_generator.py' to create synthetic test data.")
         sys.exit(1)
         
-    print(f"📂 [1/6] Ingesting Elevation Raster: {dem_path.name}")
+    print(f"📂 [1/7] Ingesting Elevation Raster: {dem_path.name}")
     with rasterio.open(dem_path) as src:
         dem_raw = src.read(1)
         transform = src.transform
@@ -107,7 +125,7 @@ def main():
     print(f"    Elevation Range: {dem_raw.min():.1f}m to {dem_raw.max():.1f}m (Relief: {dem_raw.max() - dem_raw.min():.1f}m)")
     
     # 2. Hydro-conditioning & Topographic Derivatives
-    print("\n⚙️  [2/6] Hydro-Conditioning DEM & Computing Terrain Derivatives...")
+    print("\n⚙️  [2/7] Hydro-Conditioning DEM & Computing Terrain Derivatives...")
     dem = fill_depressions(dem_raw)
     slope_deg, slope_rad = calculate_slope_and_aspect(dem, resolution)
     flow_dir = calculate_d8_flow_direction(dem, resolution)
@@ -115,43 +133,54 @@ def main():
     print(f"    Mean Terrain Slope: {slope_deg.mean():.1f}° (Max: {slope_deg.max():.1f}°)")
     print(f"    Max Catchment Accumulation: {accum_km2.max():.2f} km²")
     
-    # 3. Stream Network Extraction
-    print(f"\n🌊 [3/6] Extracting Hydrographic Stream Channels (Threshold: ≥{args.stream_threshold} km²)...")
-    streams_gdf = extract_stream_network(accum_km2, transform, crs, threshold_km2=args.stream_threshold)
-    print(f"    Extracted {len(streams_gdf)} stream reach segments.")
+    # 3. Topographic Wetness Index & SMAP-HydroBlocks Downscaling Emulation
+    print("\n💧 [3/7] Modeling 2D Spatially Distributed Soil Moisture (SMAP-HydroBlocks TWI Emulation)...")
+    twi = compute_topographic_wetness_index(accum_cells, slope_rad, resolution)
+    saturation_raster_m = downscale_smap_soil_moisture(
+        twi, regional_moisture_fraction=args.regional_saturation
+    )
+    print(f"    Mean Soil Saturation (m): {saturation_raster_m.mean() * 100:.1f}% "
+          f"(Hollows: {saturation_raster_m.max() * 100:.0f}%, Ridges: {saturation_raster_m.min() * 100:.0f}%)")
+          
+    # 4. Sentinel-1 Multi-Temporal InSAR Ground Deformation Simulation
+    print("\n📡 [4/7] Generating Sentinel-1 Multi-Temporal InSAR LOS Deformation Velocity Field...")
+    insar_velocity = generate_synthetic_sentinel1_insar_field(slope_deg, saturation_raster_m)
+    active_creep_cells = np.sum(insar_velocity <= -10.0)
+    print(f"    InSAR LOS Velocity Range: {insar_velocity.min():.1f} to {insar_velocity.max():.1f} mm/year")
+    print(f"    Active Downslope Creep Cells (v_LOS ≤ -10 mm/yr): {active_creep_cells} pixels")
     
-    # 4. Road Vector Ingestion & Spatial Intersection
-    print(f"\n🛣️  [4/6] Ingesting Road Network & Detecting Culvert Crossings...")
+    # 5. Stream Network & Road-Stream Intersections
+    print(f"\n🌊 [5/7] Extracting Stream Channels (≥{args.stream_threshold} km²) & Detecting Road Crossings...")
+    streams_gdf = extract_stream_network(accum_km2, transform, crs, threshold_km2=args.stream_threshold)
     roads_gdf = gpd.read_file(roads_path)
     crossings_gdf = detect_culvert_crossings(roads_gdf, streams_gdf)
     print(f"    Identified {len(crossings_gdf)} physical road-stream crossing intersections.")
     
     if len(crossings_gdf) == 0:
-        print("⚠️ Warning: No road-stream intersections detected. Check road network geometry or stream threshold.")
+        print("⚠️ Warning: No road-stream intersections detected.")
         sys.exit(0)
         
-    # Attaching catchment statistics
     print("    Delineating upstream catchments and slope statistics for each culvert...")
     attributed_culverts = extract_culvert_catchment_attributes(
         crossings_gdf, dem, slope_deg, flow_dir, accum_km2, transform, resolution
     )
     
-    # 5. Geotechnical & Hydraulic Multi-Hazard Risk Assessment
-    print(f"\n🔬 [5/6] Running Physics-Informed Geotechnical & Hydraulic Risk Assessment...")
-    print(f"    Antecedent Soil Moisture Saturation (m): {args.saturation * 100:.0f}%")
-    print(f"    Design Rainfall Intensity: {args.rainfall:.0f} mm/hr | Culvert Diameter: {args.diameter:.1f}m")
-    
-    assessed_culverts = assess_culvert_network_risk(
-        attributed_culverts,
-        antecedent_saturation_m=args.saturation,
+    # 6. Advanced Physics & Multi-Hazard Assessment
+    print(f"\n🔬 [6/7] Running Advanced Multi-Hazard Engine (InSAR Prior + Debris Plugging + TWI)...")
+    assessed_culverts = assess_culvert_network_risk_advanced(
+        culverts_gdf=attributed_culverts,
+        saturation_raster_m=saturation_raster_m,
+        insar_velocity_raster=insar_velocity,
+        dem_transform=transform,
+        regional_saturation_scalar=args.regional_saturation,
         design_rainfall_intensity_mm_hr=args.rainfall,
-        default_pipe_diameter_m=args.diameter
+        default_pipe_diameter_m=args.diameter,
+        enable_insar_coupling=not args.no_insar,
+        enable_debris_plugging=not args.no_debris
     )
     
-    # 6. Export Results & Cartographic Visualization
-    print("\n📊 [6/6] Generating Executive Outputs, Web GIS Map & Diagnostic Charts...")
-    
-    # Export CSV & GeoJSON
+    # 7. Export Results, Web GIS Map & Diagnostic Charts
+    print("\n📊 [7/7] Generating Executive Outputs, Web GIS Map & Diagnostic Charts...")
     csv_path = out_dir / "culvert_risk_assessment_summary.csv"
     geojson_path = out_dir / "culvert_crossings_assessed.geojson"
     
@@ -161,34 +190,33 @@ def main():
     print(f"    Saved Tabular Report: {csv_path.name}")
     print(f"    Saved GeoJSON: {geojson_path.name}")
     
-    # Web GIS Map
     html_map_path = out_dir / "culvert_risk_map.html"
     build_interactive_risk_map(assessed_culverts, roads_gdf, streams_gdf, html_map_path)
     
-    # Diagnostic Plots
     plot_path = out_dir / "culvert_risk_diagnostics.png"
     generate_diagnostic_plots(assessed_culverts, plot_path)
     
-    # Print Console Summary Table
-    print("\n" + "=" * 90)
-    print("  EXECUTIVE CULVERT VULNERABILITY SUMMARY (RANKED BY RISK)")
-    print("=" * 90)
-    print(f"{'ID':<10} {'Road Name':<22} {'Area(km²)':<10} {'Slope':<8} {'FS':<6} {'Q_peak':<9} {'HR':<6} {'CVI':<6} {'Risk Tier'}")
-    print("-" * 90)
+    # Console Summary Table
+    print("\n" + "=" * 105)
+    print("  EXECUTIVE CULVERT VULNERABILITY SUMMARY (RANKED BY RISK - v2.0 ADVANCED)")
+    print("=" * 105)
+    print(f"{'ID':<10} {'Road Name':<22} {'Area(km²)':<10} {'Slope':<7} {'FS_prior':<9} {'InSAR(mm/y)':<12} {'FS_insar':<9} {'HR':<6} {'CVI':<6} {'Risk Tier'}")
+    print("-" * 105)
     
     for _, row in assessed_culverts.iterrows():
         print(f"{row['culvert_id']:<10} "
               f"{str(row['road_name'])[:20]:<22} "
               f"{row['drainage_area_km2']:<10.2f} "
-              f"{row['p90_upslope_deg']:<7.1f}° "
-              f"{row['factor_of_safety']:<6.2f} "
-              f"{row['q_peak_m3s']:<9.2f} "
+              f"{row['p90_upslope_deg']:<6.1f}° "
+              f"{row['factor_of_safety_prior']:<9.2f} "
+              f"{row['insar_velocity_los_mmyr']:<12.1f} "
+              f"{row['factor_of_safety_insar']:<9.2f} "
               f"{row['hydraulic_surcharge_ratio']:<6.2f} "
               f"{row['composite_vulnerability_index']:<6.1f} "
               f"{row['risk_tier']}")
               
-    print("=" * 90)
-    print(f"\n🎉 Pipeline executed successfully! Interactive map available at:\n   {html_map_path}\n")
+    print("=" * 105)
+    print(f"\n🎉 Advanced v2.0 Pipeline executed successfully! Interactive map available at:\n   {html_map_path}\n")
 
 
 if __name__ == "__main__":
